@@ -24,7 +24,7 @@ function nthSundayOfMonth(year, month, nth) {
 // Is this datetime in US Central DST?
 function isUsCentralDst(year, month, day, hour) {
   // DST starts: 2nd Sunday in March at 2:00
-  // DST ends:   1st Sunday in November at 2:00
+  // DST ends: 1st Sunday in November at 2:00
   const dstStart = nthSundayOfMonth(year, 3, 2);
   dstStart.setUTCHours(2, 0, 0, 0);
 
@@ -33,7 +33,6 @@ function isUsCentralDst(year, month, day, hour) {
 
   // Approximate the local datetime as UTC for comparison
   const localAsUtc = new Date(Date.UTC(year, month - 1, day, hour, 0, 0));
-
   return localAsUtc >= dstStart && localAsUtc < dstEnd;
 }
 
@@ -46,12 +45,22 @@ function centralToUtcDate(dateStr, timeStr) {
   const offsetHours = inDst ? 5 : 6; // Central is UTC-6 (standard) or UTC-5 (DST)
 
   // Local Central -> UTC: add the offset hours
-  return new Date(Date.UTC(year, month - 1, day, hour + offsetHours, minute, second));
+  return new Date(
+    Date.UTC(year, month - 1, day, hour + offsetHours, minute, second)
+  );
 }
 
 // Day names for display
 const DAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const DAY_FULL = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const DAY_FULL = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+];
 
 exports.handler = async (event, context) => {
   const { company_id } = event.queryStringParameters || {};
@@ -83,13 +92,12 @@ exports.handler = async (event, context) => {
       return {
         statusCode: response.status,
         body: JSON.stringify({
-          error: `External API error: ${response.statusText}`,
+          error: `External API error: ${response.status} ${response.statusText}`,
         }),
       };
     }
 
     const data = await response.json();
-
     const transformed = transformSchedule(data);
 
     return {
@@ -131,10 +139,11 @@ function transformSchedule(apiResponse) {
     const startUtcIso = startUtcDate.toISOString();
     const endUtcIso = endUtcDate.toISOString();
 
-    // derive day names from Central date (same calendar date as UTC here)
+    // derive day names from Central date (same calendar date here)
     const { year, month, day } = parseDate(arrival);
     const centralDateAsUtc = new Date(Date.UTC(year, month - 1, day));
     const dowIndex = centralDateAsUtc.getUTCDay();
+
     const dayShort = DAY_SHORT[dowIndex];
     const dayFull = DAY_FULL[dowIndex];
 
@@ -161,15 +170,15 @@ function transformSchedule(apiResponse) {
 
       // Start / end in Central (raw from API)
       startTimeCentral: starttime, // "06:15:00"
-      endTimeCentral: endtime,     // "07:00:00"
+      endTimeCentral: endtime, // "07:00:00"
       startTimeCentralStr: item.start_str || null, // "6:15 am"
-      endTimeCentralStr: item.end_str || null,     // "7:00 am"
+      endTimeCentralStr: item.end_str || null, // "7:00 am"
 
       // UTC times
-      startTimeUTC: startUtcIso,                           // "2025-12-08T12:15:00.000Z"
-      endTimeUTC: endUtcIso,                               // "2025-12-08T13:00:00.000Z"
-      startTimeUTCShort: startUtcIso.slice(11, 16),        // "12:15"
-      endTimeUTCShort: endUtcIso.slice(11, 16),            // "13:00"
+      startTimeUTC: startUtcIso, // "2025-12-08T12:15:00.000Z"
+      endTimeUTC: endUtcIso, // "2025-12-08T13:00:00.000Z"
+      startTimeUTCShort: startUtcIso.slice(11, 16), // "12:15"
+      endTimeUTCShort: endUtcIso.slice(11, 16), // "13:00"
 
       availability: item.availability || null,
       description: item.description || null,
@@ -187,11 +196,7 @@ function transformSchedule(apiResponse) {
   // Sort classes in each day by UTC start time
   for (const day of daysArray) {
     day.classes.sort((a, b) =>
-      a.startTimeUTC < b.startTimeUTC
-        ? -1
-        : a.startTimeUTC > b.startTimeUTC
-        ? 1
-        : 0
+      a.startTimeUTC < b.startTimeUTC ? -1 : a.startTimeUTC > b.startTimeUTC ? 1 : 0
     );
   }
 
