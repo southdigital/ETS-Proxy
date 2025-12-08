@@ -1,9 +1,8 @@
-// netlify/functions/get-schedule.js
+// netlify/functions/schedule.js
 
 const { DateTime } = require("luxon");
 
 exports.handler = async (event, context) => {
-  // 1. Get the company ID from the incoming query parameters
   const { company_id } = event.queryStringParameters || {};
 
   if (!company_id) {
@@ -13,7 +12,6 @@ exports.handler = async (event, context) => {
     };
   }
 
-  // 2. Secure API key from Netlify env vars
   const API_KEY = process.env.GYMMASTER_API_KEY;
 
   if (!API_KEY) {
@@ -25,11 +23,9 @@ exports.handler = async (event, context) => {
     };
   }
 
-  // 3. Construct the external API URL
   const externalUrl = `https://etsperformance.gymmasteronline.com/portal/api/v1/booking/classes/schedule?companyid=${company_id}&api_key=${API_KEY}`;
 
   try {
-    // 4. Call the external API
     const response = await fetch(externalUrl);
 
     if (!response.ok) {
@@ -43,19 +39,18 @@ exports.handler = async (event, context) => {
 
     const data = await response.json();
 
-    // 5. Transform & sort data (grouped by date, times converted)
     const transformed = transformSchedule(data);
 
     return {
       statusCode: 200,
       headers: {
         "Content-Type": "application/json",
-        // So Webflow can fetch this directly
-        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Origin": "*", // for Webflow
       },
       body: JSON.stringify(transformed),
     };
   } catch (error) {
+    console.error("schedule function error:", error);
     return {
       statusCode: 500,
       body: JSON.stringify({
@@ -85,7 +80,7 @@ function transformSchedule(apiResponse) {
 
     if (!arrival || !starttime || !endtime) continue;
 
-    // Central time (US) - handles CST/CDT by date
+    // Central time (handles CST/CDT by date)
     const startCentral = DateTime.fromISO(
       `${arrival}T${starttime}`,
       { zone: "America/Chicago" }
@@ -100,16 +95,15 @@ function transformSchedule(apiResponse) {
     const startUtc = startCentral.toUTC();
     const endUtc = endCentral.toUTC();
 
-    // Use CENTRAL date as the "day" for your Webflow tab
-    const dateKey = startCentral.toISODate();      // "2025-12-08"
-    const dayShort = startCentral.toFormat("ccc"); // "Mon"
-    const dayFull = startCentral.toFormat("cccc"); // "Monday"
+    const dateKey = startCentral.toISODate();          // "2025-12-08"
+    const dayShort = startCentral.toFormat("ccc");     // "Mon"
+    const dayFull = startCentral.toFormat("cccc");     // "Monday"
 
     if (!byDate[dateKey]) {
       byDate[dateKey] = {
-        date: dateKey,   // 2025-12-08
-        day: dayShort,   // Mon
-        dayFull,         // Monday
+        date: dateKey,
+        day: dayShort,
+        dayFull,
         classes: [],
       };
     }
@@ -120,32 +114,34 @@ function transformSchedule(apiResponse) {
       name: item.classname,
       location: item.location || item.companyname,
 
-      // Central time info (for display)
-      dateCentral: dateKey,                       // 2025-12-08
-      dayOfWeek: dayShort,                       // Mon
-      startTimeCentral: startCentral.toFormat("HH:mm:ss"), // "06:15:00"
-      endTimeCentral: endCentral.toFormat("HH:mm:ss"),     // "07:00:00"
-      startTimeCentralStr: startCentral.toFormat("h:mm a"), // "6:15 AM"
-      endTimeCentralStr: endCentral.toFormat("h:mm a"),     // "7:00 AM"
+      // CENTRAL date / day (for Webflow tabs)
+      dateCentral: dateKey,
+      dayOfWeek: dayShort,
 
-      // UTC time info (for consistency / other integrations)
-      startTimeUTC: startUtc.toISO(),            // "2025-12-08T12:15:00.000Z"
-      endTimeUTC: endUtc.toISO(),                // "2025-12-08T13:00:00.000Z"
-      startTimeUTCShort: startUtc.toFormat("HH:mm"), // "12:15"
-      endTimeUTCShort: endUtc.toFormat("HH:mm"),     // "13:00"
+      // Start/end in CENTRAL (raw & pretty)
+      startTimeCentral: startCentral.toFormat("HH:mm:ss"),
+      endTimeCentral: endCentral.toFormat("HH:mm:ss"),
+      startTimeCentralStr: startCentral.toFormat("h:mm a"),
+      endTimeCentralStr: endCentral.toFormat("h:mm a"),
 
-      // Optional fields you might use in Webflow
+      // Start/end in UTC
+      startTimeUTC: startUtc.toISO(),
+      endTimeUTC: endUtc.toISO(),
+      startTimeUTCShort: startUtc.toFormat("HH:mm"),
+      endTimeUTCShort: endUtc.toFormat("HH:mm"),
+
       availability: item.availability || null,
       description: item.description || null,
       descriptionHtml: item.description_html || null,
     });
   }
 
-  // Convert object to array & sort
   const daysArray = Object.values(byDate);
 
-  // Sort days by date ascending
-  daysArray.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  // Sort days by date
+  daysArray.sort((a, b) =>
+    a.date < b.date ? -1 : a.date > b.date ? 1 : 0
+  );
 
   // Sort classes inside each day by UTC start time
   for (const day of daysArray) {
