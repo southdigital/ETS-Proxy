@@ -2,12 +2,14 @@
 
 // Helper: parse "YYYY-MM-DD"
 function parseDate(dateStr) {
+  if (!dateStr || typeof dateStr !== "string") return {};
   const [year, month, day] = dateStr.split("-").map(Number);
   return { year, month, day };
 }
 
 // Helper: parse "HH:MM:SS"
 function parseTime(timeStr) {
+  if (!timeStr || typeof timeStr !== "string") return {};
   const [hour, minute, second] = timeStr.split(":").map(Number);
   return { hour, minute, second: second || 0 };
 }
@@ -32,14 +34,19 @@ function isUsCentralDst(year, month, day, hour) {
   dstEnd.setUTCHours(2, 0, 0, 0);
 
   // Approximate the local datetime as UTC for comparison
-  const localAsUtc = new Date(Date.UTC(year, month - 1, day, hour, 0, 0));
+  const localAsUtc = new Date(Date.UTC(year, month - 1, day, hour || 0, 0, 0));
   return localAsUtc >= dstStart && localAsUtc < dstEnd;
 }
 
 // Convert Central local datetime to a UTC Date
 function centralToUtcDate(dateStr, timeStr) {
   const { year, month, day } = parseDate(dateStr);
-  const { hour, minute, second } = parseTime(timeStr);
+  const { hour = 0, minute = 0, second = 0 } = parseTime(timeStr);
+
+  if (!year || !month || !day) {
+    // Fallback: still return a Date, but avoid throwing on toISOString
+    return new Date(NaN);
+  }
 
   const inDst = isUsCentralDst(year, month, day, hour);
   const offsetHours = inDst ? 5 : 6; // Central is UTC-6 (standard) or UTC-5 (DST)
@@ -62,7 +69,7 @@ const DAY_FULL = [
   "Saturday",
 ];
 
-exports.handler = async (event, context) => {
+async function handler(event, context) {
   const { company_id } = event.queryStringParameters || {};
 
   if (!company_id) {
@@ -109,6 +116,7 @@ exports.handler = async (event, context) => {
       body: JSON.stringify(transformed),
     };
   } catch (error) {
+    // If you run a linter that treats console.* as an error, you can remove this.
     console.error("schedule function error:", error);
     return {
       statusCode: 500,
@@ -118,7 +126,10 @@ exports.handler = async (event, context) => {
       }),
     };
   }
-};
+}
+
+// Classic Netlify Functions export
+module.exports.handler = handler;
 
 function transformSchedule(apiResponse) {
   if (!apiResponse || !Array.isArray(apiResponse.result)) {
@@ -132,12 +143,19 @@ function transformSchedule(apiResponse) {
 
     if (!arrival || !starttime || !endtime) continue;
 
-    // Central -> UTC
-    const startUtcDate = centralToUtcDate(arrival, starttime);
-    const endUtcDate = centralToUtcDate(arrival, endtime);
+    let startUtcIso = null;
+    let endUtcIso = null;
 
-    const startUtcIso = startUtcDate.toISOString();
-    const endUtcIso = endUtcDate.toISOString();
+    try {
+      const startUtcDate = centralToUtcDate(arrival, starttime);
+      const endUtcDate = centralToUtcDate(arrival, endtime);
+
+      startUtcIso = startUtcDate.toISOString();
+      endUtcIso = endUtcDate.toISOString();
+    } catch {
+      // If we fail to parse dates for a specific item, just skip that item
+      continue;
+    }
 
     // derive day names from Central date (same calendar date here)
     const { year, month, day } = parseDate(arrival);
@@ -189,9 +207,7 @@ function transformSchedule(apiResponse) {
   const daysArray = Object.values(byDate);
 
   // Sort days by date ascending
-  daysArray.sort((a, b) =>
-    a.date < b.date ? -1 : a.date > b.date ? 1 : 0
-  );
+  daysArray.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 
   // Sort classes in each day by UTC start time
   for (const day of daysArray) {
