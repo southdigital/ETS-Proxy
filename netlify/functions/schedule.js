@@ -39,6 +39,95 @@ exports.handler = async (event, context) => {
 
     const data = await response.json();
 
+    function transformSchedule(apiResponse) {
+      if (!apiResponse || !Array.isArray(apiResponse.result)) {
+        return [];
+      }
+
+      const byDate = {};
+
+      for (const item of apiResponse.result) {
+        const { arrival, starttime, endtime } = item;
+
+        if (!arrival || !starttime || !endtime) continue;
+
+        // Central time (handles CST/CDT by date)
+        const startCentral = DateTime.fromISO(
+          `${arrival}T${starttime}`,
+          { zone: "America/Chicago" }
+        );
+        const endCentral = DateTime.fromISO(
+          `${arrival}T${endtime}`,
+          { zone: "America/Chicago" }
+        );
+
+        if (!startCentral.isValid || !endCentral.isValid) continue;
+
+        const startUtc = startCentral.toUTC();
+        const endUtc = endCentral.toUTC();
+
+        const dateKey = startCentral.toISODate();          // "2025-12-08"
+        const dayShort = startCentral.toFormat("ccc");     // "Mon"
+        const dayFull = startCentral.toFormat("cccc");     // "Monday"
+
+        if (!byDate[dateKey]) {
+          byDate[dateKey] = {
+            date: dateKey,
+            day: dayShort,
+            dayFull,
+            classes: [],
+          };
+        }
+
+        byDate[dateKey].classes.push({
+          id: item.id,
+          classId: item.classid,
+          name: item.classname,
+          location: item.location || item.companyname,
+
+          // CENTRAL date / day (for Webflow tabs)
+          dateCentral: dateKey,
+          dayOfWeek: dayShort,
+
+          // Start/end in CENTRAL (raw & pretty)
+          startTimeCentral: startCentral.toFormat("HH:mm:ss"),
+          endTimeCentral: endCentral.toFormat("HH:mm:ss"),
+          startTimeCentralStr: startCentral.toFormat("h:mm a"),
+          endTimeCentralStr: endCentral.toFormat("h:mm a"),
+
+          // Start/end in UTC
+          startTimeUTC: startUtc.toISO(),
+          endTimeUTC: endUtc.toISO(),
+          startTimeUTCShort: startUtc.toFormat("HH:mm"),
+          endTimeUTCShort: endUtc.toFormat("HH:mm"),
+
+          availability: item.availability || null,
+          description: item.description || null,
+          descriptionHtml: item.description_html || null,
+        });
+      }
+
+      const daysArray = Object.values(byDate);
+
+      // Sort days by date
+      daysArray.sort((a, b) =>
+        a.date < b.date ? -1 : a.date > b.date ? 1 : 0
+      );
+
+      // Sort classes inside each day by UTC start time
+      for (const day of daysArray) {
+        day.classes.sort((a, b) =>
+          a.startTimeUTC < b.startTimeUTC
+            ? -1
+            : a.startTimeUTC > b.startTimeUTC
+            ? 1
+            : 0
+        );
+      }
+
+      return daysArray;
+    }
+
     const transformed = transformSchedule(data);
 
     return {
@@ -60,99 +149,3 @@ exports.handler = async (event, context) => {
     };
   }
 };
-
-/**
- * Transform Gym Master schedule:
- * - interpret arrival/start/end as US Central (America/Chicago)
- * - convert to UTC
- * - group by central date
- * - sort by date, then start time
- */
-function transformSchedule(apiResponse) {
-  if (!apiResponse || !Array.isArray(apiResponse.result)) {
-    return [];
-  }
-
-  const byDate = {};
-
-  for (const item of apiResponse.result) {
-    const { arrival, starttime, endtime } = item;
-
-    if (!arrival || !starttime || !endtime) continue;
-
-    // Central time (handles CST/CDT by date)
-    const startCentral = DateTime.fromISO(
-      `${arrival}T${starttime}`,
-      { zone: "America/Chicago" }
-    );
-    const endCentral = DateTime.fromISO(
-      `${arrival}T${endtime}`,
-      { zone: "America/Chicago" }
-    );
-
-    if (!startCentral.isValid || !endCentral.isValid) continue;
-
-    const startUtc = startCentral.toUTC();
-    const endUtc = endCentral.toUTC();
-
-    const dateKey = startCentral.toISODate();          // "2025-12-08"
-    const dayShort = startCentral.toFormat("ccc");     // "Mon"
-    const dayFull = startCentral.toFormat("cccc");     // "Monday"
-
-    if (!byDate[dateKey]) {
-      byDate[dateKey] = {
-        date: dateKey,
-        day: dayShort,
-        dayFull,
-        classes: [],
-      };
-    }
-
-    byDate[dateKey].classes.push({
-      id: item.id,
-      classId: item.classid,
-      name: item.classname,
-      location: item.location || item.companyname,
-
-      // CENTRAL date / day (for Webflow tabs)
-      dateCentral: dateKey,
-      dayOfWeek: dayShort,
-
-      // Start/end in CENTRAL (raw & pretty)
-      startTimeCentral: startCentral.toFormat("HH:mm:ss"),
-      endTimeCentral: endCentral.toFormat("HH:mm:ss"),
-      startTimeCentralStr: startCentral.toFormat("h:mm a"),
-      endTimeCentralStr: endCentral.toFormat("h:mm a"),
-
-      // Start/end in UTC
-      startTimeUTC: startUtc.toISO(),
-      endTimeUTC: endUtc.toISO(),
-      startTimeUTCShort: startUtc.toFormat("HH:mm"),
-      endTimeUTCShort: endUtc.toFormat("HH:mm"),
-
-      availability: item.availability || null,
-      description: item.description || null,
-      descriptionHtml: item.description_html || null,
-    });
-  }
-
-  const daysArray = Object.values(byDate);
-
-  // Sort days by date
-  daysArray.sort((a, b) =>
-    a.date < b.date ? -1 : a.date > b.date ? 1 : 0
-  );
-
-  // Sort classes inside each day by UTC start time
-  for (const day of daysArray) {
-    day.classes.sort((a, b) =>
-      a.startTimeUTC < b.startTimeUTC
-        ? -1
-        : a.startTimeUTC > b.startTimeUTC
-        ? 1
-        : 0
-    );
-  }
-
-  return daysArray;
-}
