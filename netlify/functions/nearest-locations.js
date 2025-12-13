@@ -11,7 +11,9 @@ function haversineKm(a, b) {
   const dLng = toRad(b.lng - a.lng);
   const lat1 = toRad(a.lat);
   const lat2 = toRad(b.lat);
-  const h = Math.sin(dLat/2)**2 + Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLng/2)**2;
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(h));
 }
 
@@ -35,7 +37,10 @@ async function fetchAllWebflowItems(collectionId, token) {
     Accept: "application/json",
     "Content-Type": "application/json",
   };
-  let items = [], offset = 0;
+
+  let items = [];
+  let offset = 0;
+
   while (true) {
     const url = `${WEBFLOW_BASE}/collections/${collectionId}/items?limit=${MAX_PAGE}&offset=${offset}`;
     const r = await fetch(url, { headers });
@@ -46,6 +51,7 @@ async function fetchAllWebflowItems(collectionId, token) {
     if (page.length < MAX_PAGE) break;
     offset += page.length;
   }
+
   return items;
 }
 
@@ -54,13 +60,19 @@ async function geocode({ q, lat, lng, key }) {
   if (lat != null && lng != null) return { lat: +lat, lng: +lng };
   if (!q) throw new Error("Provide either lat/lng or q");
 
-  const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(q)}&components=country:US&region=us&key=${key}`;
+  const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(
+    q
+  )}&components=country:US&region=us&key=${key}`;
+
   const r = await fetch(url);
   const j = await r.json();
-  if (j.status !== "OK" || !j.results?.length) throw new Error(`Geocode failed: ${j.status}`);
+
+  if (j.status !== "OK" || !j.results?.length) {
+    throw new Error(`Geocode failed: ${j.status}`);
+  }
 
   const isUS = j.results[0].address_components.some(
-    c => c.types.includes("country") && c.short_name === "US"
+    (c) => c.types.includes("country") && c.short_name === "US"
   );
   if (!isUS) throw new Error("Please enter a location in the United States.");
 
@@ -70,17 +82,30 @@ async function geocode({ q, lat, lng, key }) {
 
 async function distanceMatrix({ origin, dests, key }) {
   const out = [];
+
   for (let i = 0; i < dests.length; i += DM_CHUNK) {
-    const batch = dests.slice(i, i + DM_CHUNK).map(d => `${d.lat},${d.lng}`).join("|");
+    const batch = dests
+      .slice(i, i + DM_CHUNK)
+      .map((d) => `${d.lat},${d.lng}`)
+      .join("|");
+
     const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${origin.lat},${origin.lng}&destinations=${batch}&units=imperial&key=${key}`;
     const r = await fetch(url);
     const j = await r.json();
+
     if (j.status !== "OK") throw new Error(`Distance Matrix: ${j.status}`);
+
     const row = j.rows?.[0];
     row?.elements?.forEach((el, idx) => {
-      out.push({ idx: i + idx, status: el.status, distance: el.distance || null, duration: el.duration || null });
+      out.push({
+        idx: i + idx,
+        status: el.status,
+        distance: el.distance || null,
+        duration: el.duration || null,
+      });
     });
   }
+
   return out;
 }
 
@@ -110,43 +135,90 @@ function normalizeItem(item, siteBase) {
   ];
   let image = null;
   for (const key of imageKeys) {
-    if (typeof f[key] === "string" && f[key]) { image = f[key]; break; }
-    if (f[key]?.url) { image = f[key].url; break; }
+    if (typeof f[key] === "string" && f[key]) {
+      image = f[key];
+      break;
+    }
+    if (f[key]?.url) {
+      image = f[key].url;
+      break;
+    }
     // some Webflow image fields can be arrays (Multi-image) — take the first
-    if (Array.isArray(f[key]) && f[key][0]?.url) { image = f[key][0].url; break; }
+    if (Array.isArray(f[key]) && f[key][0]?.url) {
+      image = f[key][0].url;
+      break;
+    }
   }
 
   // 3) Address — try common keys
-  const addressKeys = ["address", "Address", "street-address", "streetAddress", "location-address", "locationAddress"];
+  const addressKeys = [
+    "address",
+    "Address",
+    "street-address",
+    "streetAddress",
+    "location-address",
+    "locationAddress",
+  ];
   let address = null;
   for (const key of addressKeys) {
-    if (typeof f[key] === "string" && f[key].trim()) { address = f[key].trim(); break; }
+    if (typeof f[key] === "string" && f[key].trim()) {
+      address = f[key].trim();
+      break;
+    }
   }
   if (!address) address = item.name || "Location";
 
   // 4) Details / Book URLs
   // If you store explicit URLs in CMS, prefer those; otherwise build from base + slug
-  const detailsUrl = (typeof f["details-url"] === "string" && f["details-url"]) ||
-                     (typeof f["detailsUrl"] === "string" && f["detailsUrl"]) ||
-                     (slug ? `${siteBase.replace(/\/$/, "")}/locations/${slug}` : null);
+  const detailsUrl =
+    (typeof f["details-url"] === "string" && f["details-url"]) ||
+    (typeof f["detailsUrl"] === "string" && f["detailsUrl"]) ||
+    (slug
+      ? `${siteBase.replace(/\/$/, "")}/locations/${slug}`
+      : null);
 
-  const bookUrl = (typeof f["book-url"] === "string" && f["book-url"]) ||
-                  (typeof f["bookUrl"] === "string" && f["bookUrl"]) ||
-                  (slug ? `${siteBase.replace(/\/$/, "")}/book?location=${encodeURIComponent(slug)}` : null);
+  const bookUrl =
+    (typeof f["book-url"] === "string" && f["book-url"]) ||
+    (typeof f["bookUrl"] === "string" && f["bookUrl"]) ||
+    (slug
+      ? `${siteBase.replace(/\/$/, "")}/book?location=${encodeURIComponent(
+          slug
+        )}`
+      : null);
 
   // 5) Directions link (always available with lat/lng)
   const directionsUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+
+  // 6) NEW — Iframe fields (match Webflow field slugs from your CMS)
+  // Most likely keys (Webflow auto-slugifies labels):
+  //   Booking Form Iframe ID  -> booking-form-iframe-id
+  //   Calendar Iframe Src     -> calendar-iframe-src
+  //   Calendar Iframe ID      -> calendar-iframe-id
+  const bookingFormIframeId =
+    f["booking-form-iframe-id"] ?? f.bookingFormIframeId ?? null;
+
+  const calendarIframeSrc =
+    f["calendar-iframe-src"] ?? f.calendarIframeSrc ?? null;
+
+  const calendarIframeId =
+    f["calendar-iframe-id"] ?? f.calendarIframeId ?? null;
 
   return {
     id: item.id,
     name: f.name || item.name || "Location",
     slug, // helpful for debugging
-    lat, lng,
+    lat,
+    lng,
     image,
     address,
     detailsUrl,
     bookUrl,
     directionsUrl,
+
+    // NEW:
+    bookingFormIframeId,
+    calendarIframeId,
+    calendarIframeSrc,
   };
 }
 
@@ -165,17 +237,30 @@ exports.handler = async (event) => {
     } = process.env;
 
     if (!WEBFLOW_TOKEN || !WEBFLOW_COLLECTION_ID || !GOOGLE_MAPS_API_KEY) {
-      return reply({ error: "Missing env vars: WEBFLOW_TOKEN, WEBFLOW_COLLECTION_ID, GOOGLE_MAPS_API_KEY" }, 500);
+      return reply(
+        {
+          error:
+            "Missing env vars: WEBFLOW_TOKEN, WEBFLOW_COLLECTION_ID, GOOGLE_MAPS_API_KEY",
+        },
+        500
+      );
     }
 
     // 1) Resolve user origin
     const user = await geocode({ q, lat, lng, key: GOOGLE_MAPS_API_KEY });
 
     // 2) Fetch + normalize items (skip missing lat/lng)
-    const raw = await fetchAllWebflowItems(WEBFLOW_COLLECTION_ID, WEBFLOW_TOKEN);
-    const locations = raw.map((it) => normalizeItem(it, WEBFLOW_SITE_BASE)).filter(Boolean);
+    const raw = await fetchAllWebflowItems(
+      WEBFLOW_COLLECTION_ID,
+      WEBFLOW_TOKEN
+    );
+    const locations = raw
+      .map((it) => normalizeItem(it, WEBFLOW_SITE_BASE))
+      .filter(Boolean);
 
-    if (!locations.length) return reply({ error: "No locations with lat/lng found." }, 404);
+    if (!locations.length) {
+      return reply({ error: "No locations with lat/lng found." }, 404);
+    }
 
     // 3) Haversine shortlist
     const pre = locations
@@ -195,7 +280,8 @@ exports.handler = async (event) => {
       const m = dm.find((x) => x.idx === i && x.status === "OK");
       return {
         ...l,
-        distanceText: m?.distance?.text || `${(l.airKm * 0.621371).toFixed(1)} mi`,
+        distanceText:
+          m?.distance?.text || `${(l.airKm * 0.621371).toFixed(1)} mi`,
         distanceMeters: m?.distance?.value ?? Math.round(l.airKm * 1000),
         durationText: m?.duration?.text || null,
         durationSeconds: m?.duration?.value ?? null,
@@ -203,11 +289,16 @@ exports.handler = async (event) => {
     });
 
     merged.sort((a, b) => {
-      if (a.durationSeconds != null && b.durationSeconds != null) return a.durationSeconds - b.durationSeconds;
+      if (a.durationSeconds != null && b.durationSeconds != null) {
+        return a.durationSeconds - b.durationSeconds;
+      }
       return a.distanceMeters - b.distanceMeters;
     });
 
-    const top = merged.slice(0, Math.max(1, Math.min(Number(limit) || 3, 10)));
+    const top = merged.slice(
+      0,
+      Math.max(1, Math.min(Number(limit) || 3, 10))
+    );
 
     return reply({
       user,
@@ -222,7 +313,13 @@ exports.handler = async (event) => {
         detailsUrl: l.detailsUrl,
         bookUrl: l.bookUrl,
         directionsUrl: l.directionsUrl,
-        lat: l.lat, lng: l.lng,
+        lat: l.lat,
+        lng: l.lng,
+
+        // NEW:
+        bookingFormIframeId: l.bookingFormIframeId,
+        calendarIframeId: l.calendarIframeId,
+        calendarIframeSrc: l.calendarIframeSrc,
       })),
     });
   } catch (e) {
