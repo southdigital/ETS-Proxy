@@ -2,7 +2,6 @@
 const WEBFLOW_BASE = "https://api.webflow.com/v2";
 const MAX_PAGE = 100;
 const PRESELECT = 25;
-const DM_CHUNK = 25;
 
 const toRad = (d) => (d * Math.PI) / 180;
 function haversineKm(a, b) {
@@ -78,35 +77,6 @@ async function geocode({ q, lat, lng, key }) {
 
   const loc = j.results[0].geometry.location;
   return { lat: loc.lat, lng: loc.lng };
-}
-
-async function distanceMatrix({ origin, dests, key }) {
-  const out = [];
-
-  for (let i = 0; i < dests.length; i += DM_CHUNK) {
-    const batch = dests
-      .slice(i, i + DM_CHUNK)
-      .map((d) => `${d.lat},${d.lng}`)
-      .join("|");
-
-    const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${origin.lat},${origin.lng}&destinations=${batch}&units=imperial&key=${key}`;
-    const r = await fetch(url);
-    const j = await r.json();
-
-    if (j.status !== "OK") throw new Error(`Distance Matrix: ${j.status}`);
-
-    const row = j.rows?.[0];
-    row?.elements?.forEach((el, idx) => {
-      out.push({
-        idx: i + idx,
-        status: el.status,
-        distance: el.distance || null,
-        duration: el.duration || null,
-      });
-    });
-  }
-
-  return out;
 }
 
 // ---- Robust normalizer: slug from fieldData.slug, flexible image/address slugs
@@ -279,25 +249,16 @@ exports.handler = async (event) => {
       .sort((a, b) => a.airKm - b.airKm)
       .slice(0, shortlistN);
 
-    // 4) Distance Matrix (driving) — now runs on smaller shortlist
-    const dm = await distanceMatrix({
-      origin: user,
-      dests: pre.map((l) => ({ lat: l.lat, lng: l.lng })),
-      key: GOOGLE_MAPS_API_KEY,
-    });
 
-    // 5) Merge + pick best N
-    const merged = pre.map((l, i) => {
-      const m = dm.find((x) => x.idx === i && x.status === "OK");
-      return {
-        ...l,
-        distanceText:
-          m?.distance?.text || `${(l.airKm * 0.621371).toFixed(1)} mi`,
-        distanceMeters: m?.distance?.value ?? Math.round(l.airKm * 1000),
-        durationText: m?.duration?.text || null,
-        durationSeconds: m?.duration?.value ?? null,
-      };
-    });
+    // 5) Merge using Haversine ONLY (no Google Distance Matrix)
+    const merged = pre.map((l) => ({
+      ...l,
+      distanceMeters: Math.round(l.airKm * 1000),
+      distanceText: `${(l.airKm * 0.621371).toFixed(1)} mi`,
+      durationText: null,
+      durationSeconds: null,
+    }));
+
 
     merged.sort((a, b) => {
       if (a.durationSeconds != null && b.durationSeconds != null) {
