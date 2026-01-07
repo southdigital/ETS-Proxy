@@ -262,13 +262,24 @@ exports.handler = async (event) => {
       return reply({ error: "No locations with lat/lng found." }, 404);
     }
 
-    // 3) Haversine shortlist
+    // -----------------------------
+    // 3) Haversine shortlist (cost-saving)
+    // Only send a small shortlist to Distance Matrix based on requested limit.
+    // -----------------------------
+    const safeLimit = Math.max(1, Math.min(Number(limit) || 3, 10));
+    const DM_BUFFER = 3; // keep small to reduce cost, but preserve "fastest by driving" accuracy
+    const shortlistN = Math.min(
+      PRESELECT,
+      safeLimit * DM_BUFFER,
+      locations.length
+    );
+
     const pre = locations
       .map((l) => ({ ...l, airKm: haversineKm(user, l) }))
       .sort((a, b) => a.airKm - b.airKm)
-      .slice(0, Math.min(PRESELECT, locations.length));
+      .slice(0, shortlistN);
 
-    // 4) Distance Matrix (driving)
+    // 4) Distance Matrix (driving) — now runs on smaller shortlist
     const dm = await distanceMatrix({
       origin: user,
       dests: pre.map((l) => ({ lat: l.lat, lng: l.lng })),
@@ -295,10 +306,7 @@ exports.handler = async (event) => {
       return a.distanceMeters - b.distanceMeters;
     });
 
-    const top = merged.slice(
-      0,
-      Math.max(1, Math.min(Number(limit) || 3, 10))
-    );
+    const top = merged.slice(0, safeLimit);
 
     return reply({
       user,
